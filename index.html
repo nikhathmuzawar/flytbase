@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Drone Deconfliction Service</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .upload-area {
+            border: 2px dashed #dee2e6;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        .upload-area:hover {
+            border-color: #007bff;
+            background-color: #f8f9fa;
+        }
+        .plot-container {
+            min-height: 400px;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+        .plot-container img { max-width: 100%; height: auto; }
+        .file-info { font-size: 0.9em; margin-top: 5px; }
+        .mission-card {
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+            background: white;
+        }
+        .approved-badge {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+        }
+        .rejected-badge {
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+            color: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+        }
+        .suggestion-card {
+            background-color: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+        }
+        .conflict-detail {
+            background-color: #f8d7da;
+            border-left: 4px solid #dc3545;
+            padding: 10px;
+            margin-bottom: 8px;
+            border-radius: 4px;
+        }
+        .service-status {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            padding: 10px 20px;
+            border-radius: 20px;
+            background: white;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+        .status-online { background-color: #28a745; }
+        .status-offline { background-color: #dc3545; }
+        .loading { display: none; }
+        .response-section {
+            margin-top: 20px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <!-- Service Status Indicator -->
+    <div class="service-status">
+        <span class="status-indicator status-online"></span>
+        <strong>Service Online</strong>
+        <div style="font-size: 0.8em; color: #666;">
+            <span id="approvedCount">0</span> approved missions
+        </div>
+    </div>
+
+    <div class="container-fluid mt-4">
+        <div class="row">
+            <!-- Left Panel - Mission Submission -->
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header bg-primary text-white">
+                        <h4><i class="fas fa-satellite-dish"></i> Drone Deconfliction Service</h4>
+                        <small>Submit your mission for approval</small>
+                    </div>
+                    <div class="card-body">
+                        <form id="missionForm">
+                            <div class="mb-3">
+                                <label class="form-label"><strong>Drone ID</strong></label>
+                                <input type="text" class="form-control" id="droneId" 
+                                       placeholder="e.g., DRONE-001" required>
+                                <small class="text-muted">Unique identifier for your drone</small>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label"><strong>Waypoint File</strong></label>
+                                <div class="upload-area" onclick="document.getElementById('waypointFile').click()">
+                                    <i class="fas fa-upload fa-2x text-primary mb-2"></i>
+                                    <div>Click to upload mission waypoints</div>
+                                    <small class="text-muted">Format: QGC .waypoint, .txt, .csv</small>
+                                </div>
+                                <input type="file" id="waypointFile" accept=".waypoint,.txt,.csv" 
+                                       style="display: none;" required>
+                                <div id="fileName" class="file-info"></div>
+                            </div>
+
+                            <div class="row mb-3">
+                                <div class="col-6">
+                                    <label class="form-label">Start Time</label>
+                                    <input type="datetime-local" class="form-control" id="startTime" required>
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label">End Time</label>
+                                    <input type="datetime-local" class="form-control" id="endTime" required>
+                                </div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label">Speed (m/s)</label>
+                                <input type="number" class="form-control" id="speed" 
+                                       value="10" min="1" max="50" step="0.1">
+                            </div>
+
+                            <button type="submit" class="btn btn-primary btn-lg w-100" id="submitBtn">
+                                <i class="fas fa-paper-plane"></i> Submit Mission
+                            </button>
+                        </form>
+
+                        <!-- Loading Indicator -->
+                        <div class="loading text-center mt-3">
+                            <div class="spinner-border text-primary" role="status"></div>
+                            <div class="mt-2">Checking for conflicts...</div>
+                        </div>
+
+                        <!-- Mission Response -->
+                        <div id="missionResponse" class="response-section"></div>
+
+                        <!-- Service Actions -->
+                        <div class="mt-4">
+                            <h6>Service Actions</h6>
+                            <button class="btn btn-sm btn-outline-info w-100 mb-2" id="viewMissionsBtn">
+                                <i class="fas fa-list"></i> View Approved Missions
+                            </button>
+                            <button class="btn btn-sm btn-outline-warning w-100 mb-2" id="visualizeBtn">
+                                <i class="fas fa-eye"></i> Visualize Airspace
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger w-100" id="clearBtn">
+                                <i class="fas fa-trash"></i> Clear All Missions
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel - Visualizations & Status -->
+            <div class="col-md-8">
+                <div class="row">
+                    <!-- Approved Missions List -->
+                    <div class="col-12 mb-4">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5><i class="fas fa-clipboard-check"></i> Approved Missions</h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="approvedMissionsList">
+                                    <div class="text-muted text-center p-5">
+                                        <i class="fas fa-inbox fa-3x mb-3"></i>
+                                        <div>No approved missions yet</div>
+                                        <small>Submit a mission to get started</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 2D Visualization -->
+                    <div class="col-md-6 mb-4">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5><i class="fas fa-map"></i> 2D Airspace View</h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="plot2D" class="plot-container">
+                                    <div class="text-muted text-center">
+                                        <i class="fas fa-chart-line fa-3x mb-3"></i>
+                                        <div>Airspace visualization will appear here</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3D Visualization -->
+                    <div class="col-md-6 mb-4">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5><i class="fas fa-cube"></i> 3D Airspace View</h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="plot3D" class="plot-container">
+                                    <div class="text-muted text-center">
+                                        <i class="fas fa-cube fa-3x mb-3"></i>
+                                        <div>3D visualization will appear here</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        class DroneDeconflictionClient {
+            constructor() {
+                this.setupEventListeners();
+                this.setDefaultTimes();
+                this.updateApprovedMissionCount();
+            }
+
+            setupEventListeners() {
+                document.getElementById('missionForm').addEventListener('submit', this.handleMissionSubmit.bind(this));
+                document.getElementById('waypointFile').addEventListener('change', this.handleFileSelect.bind(this));
+                document.getElementById('viewMissionsBtn').addEventListener('click', this.viewApprovedMissions.bind(this));
+                document.getElementById('visualizeBtn').addEventListener('click', this.visualizeAirspace.bind(this));
+                document.getElementById('clearBtn').addEventListener('click', this.clearMissions.bind(this));
+            }
+
+            setDefaultTimes() {
+                const now = new Date();
+                const startTime = new Date(now.getTime() + 60000);
+                const endTime = new Date(startTime.getTime() + 30 * 60000);
+                
+                document.getElementById('startTime').value = this.formatDateTimeLocal(startTime);
+                document.getElementById('endTime').value = this.formatDateTimeLocal(endTime);
+            }
+
+            formatDateTimeLocal(date) {
+                const year = date.getFullYear();
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const day = String(date.getDate()).padStart(2, '0');
+                const hours = String(date.getHours()).padStart(2, '0');
+                const minutes = String(date.getMinutes()).padStart(2, '0');
+                return `${year}-${month}-${day}T${hours}:${minutes}`;
+            }
+
+            handleFileSelect(e) {
+                const file = e.target.files[0];
+                if (file) {
+                    document.getElementById('fileName').innerHTML = 
+                        `<small class="text-success"><i class="fas fa-check-circle"></i> ${file.name}</small>`;
+                }
+            }
+
+            async handleMissionSubmit(e) {
+                e.preventDefault();
+                
+                const droneId = document.getElementById('droneId').value;
+                const file = document.getElementById('waypointFile').files[0];
+                const startTime = document.getElementById('startTime').value;
+                const endTime = document.getElementById('endTime').value;
+                const speed = document.getElementById('speed').value;
+
+                if (!file) {
+                    alert('Please upload a waypoint file');
+                    return;
+                }
+
+                this.showLoading(true);
+                document.getElementById('missionResponse').style.display = 'none';
+
+                try {
+                    const formData = new FormData();
+                    formData.append('drone_id', droneId);
+                    formData.append('waypoint_file', file);
+                    formData.append('start_time', startTime);
+                    formData.append('end_time', endTime);
+                    formData.append('speed', speed);
+
+                    const response = await fetch('/api/submit_mission', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.detail || 'Submission failed');
+                    }
+
+                    const result = await response.json();
+                    this.displayMissionResponse(result);
+                    this.updateApprovedMissionCount();
+                    
+                    if (result.status === 'approved') {
+                        this.viewApprovedMissions();
+                    }
+
+                } catch (error) {
+                    console.error('Error:', error);
+                    this.showError('Mission submission failed: ' + error.message);
+                } finally {
+                    this.showLoading(false);
+                }
+            }
+
+            displayMissionResponse(result) {
+                const responseDiv = document.getElementById('missionResponse');
+                let html = '<div class="mission-card">';
+
+                if (result.status === 'approved') {
+                    html += `
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h5 class="mb-0"><i class="fas fa-check-circle text-success"></i> Mission Approved</h5>
+                            <span class="approved-badge">APPROVED</span>
+                        </div>
+                        <p class="mb-2"><strong>Mission ID:</strong> ${result.mission_id}</p>
+                        <div class="alert alert-success mb-0">
+                            <i class="fas fa-info-circle"></i> ${result.message}
+                        </div>
+                    `;
+                } else {
+                    html += `
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h5 class="mb-0"><i class="fas fa-times-circle text-danger"></i> Mission Rejected</h5>
+                            <span class="rejected-badge">REJECTED</span>
+                        </div>
+                        <p class="mb-2"><strong>Mission ID:</strong> ${result.mission_id}</p>
+                        <div class="alert alert-danger">
+                            <i class="fas fa-exclamation-triangle"></i> ${result.message}
+                        </div>
+                    `;
+
+                    if (result.conflicts) {
+                        html += '<h6 class="mt-3 mb-2">Conflict Details:</h6>';
+                        for (const [droneId, conflict] of Object.entries(result.conflicts)) {
+                            html += `
+                                <div class="conflict-detail">
+                                    <strong>${droneId}</strong>: ${conflict.count} conflicts, 
+                                    minimum distance ${conflict.min_distance.toFixed(2)}m
+                                </div>
+                            `;
+                        }
+                    }
+
+                    if (result.suggestions && result.suggestions.length > 0) {
+                        html += '<h6 class="mt-3 mb-2">Deconfliction Suggestions:</h6>';
+                        result.suggestions.forEach((suggestion, index) => {
+                            html += `
+                                <div class="suggestion-card">
+                                    <div class="mb-1">
+                                        <i class="fas fa-lightbulb"></i> 
+                                        <strong>Option ${index + 1}:</strong> ${suggestion.description}
+                                    </div>
+                                    <small class="text-muted">${suggestion.parameters.reason}</small>
+                                </div>
+                            `;
+                        });
+                    }
+                }
+
+                html += '</div>';
+                responseDiv.innerHTML = html;
+                responseDiv.style.display = 'block';
+            }
+
+            async updateApprovedMissionCount() {
+                try {
+                    const response = await fetch('/api/approved_missions');
+                    const data = await response.json();
+                    document.getElementById('approvedCount').textContent = data.count;
+                } catch (error) {
+                    console.error('Error updating count:', error);
+                }
+            }
+
+            async viewApprovedMissions() {
+                try {
+                    const response = await fetch('/api/approved_missions');
+                    const data = await response.json();
+                    
+                    const listDiv = document.getElementById('approvedMissionsList');
+                    
+                    if (data.count === 0) {
+                        listDiv.innerHTML = `
+                            <div class="text-muted text-center p-5">
+                                <i class="fas fa-inbox fa-3x mb-3"></i>
+                                <div>No approved missions yet</div>
+                                <small>Submit a mission to get started</small>
+                            </div>
+                        `;
+                    } else {
+                        let html = '<div class="row">';
+                        data.approved_missions.forEach((missionId, index) => {
+                            html += `
+                                <div class="col-md-4 mb-3">
+                                    <div class="card bg-success text-white">
+                                        <div class="card-body">
+                                            <h6><i class="fas fa-drone"></i> ${missionId}</h6>
+                                            <small>Approved Mission #${index + 1}</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+                        });
+                        html += '</div>';
+                        listDiv.innerHTML = html;
+                    }
+                } catch (error) {
+                    console.error('Error fetching missions:', error);
+                }
+            }
+
+            async visualizeAirspace() {
+                try {
+                    const response = await fetch('/api/visualize', { method: 'POST' });
+                    const data = await response.json();
+                    
+                    if (data.plots.plot_2d) {
+                        document.getElementById('plot2D').innerHTML = 
+                            `<img src="${data.plots.plot_2d}" class="img-fluid" alt="2D View">`;
+                    }
+                    
+                    if (data.plots.plot_3d) {
+                        document.getElementById('plot3D').innerHTML = 
+                            `<img src="${data.plots.plot_3d}" class="img-fluid" alt="3D View">`;
+                    }
+                } catch (error) {
+                    console.error('Error visualizing:', error);
+                    alert('Error generating visualization');
+                }
+            }
+
+            async clearMissions() {
+                if (!confirm('Are you sure you want to clear all approved missions?')) {
+                    return;
+                }
+
+                try {
+                    await fetch('/api/clear_missions', { method: 'POST' });
+                    this.updateApprovedMissionCount();
+                    this.viewApprovedMissions();
+                    
+                    document.getElementById('plot2D').innerHTML = `
+                        <div class="text-muted text-center">
+                            <i class="fas fa-chart-line fa-3x mb-3"></i>
+                            <div>Airspace visualization will appear here</div>
+                        </div>
+                    `;
+                    document.getElementById('plot3D').innerHTML = `
+                        <div class="text-muted text-center">
+                            <i class="fas fa-cube fa-3x mb-3"></i>
+                            <div>3D visualization will appear here</div>
+                        </div>
+                    `;
+                    
+                    alert('All missions cleared successfully');
+                } catch (error) {
+                    console.error('Error clearing missions:', error);
+                    alert('Error clearing missions');
+                }
+            }
+
+            showLoading(show) {
+                const loading = document.querySelector('.loading');
+                const button = document.getElementById('submitBtn');
+                
+                if (show) {
+                    loading.style.display = 'block';
+                    button.disabled = true;
+                    button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+                } else {
+                    loading.style.display = 'none';
+                    button.disabled = false;
+                    button.innerHTML = '<i class="fas fa-paper-plane"></i> Submit Mission';
+                }
+            }
+
+            showError(message) {
+                const responseDiv = document.getElementById('missionResponse');
+                responseDiv.innerHTML = `
+                    <div class="alert alert-danger">
+                        <i class="fas fa-exclamation-circle"></i> <strong>Error:</strong> ${message}
+                    </div>
+                `;
+                responseDiv.style.display = 'block';
+            }
+        }
+
+        let client;
+        document.addEventListener('DOMContentLoaded', () => {
+            client = new DroneDeconflictionClient();
+        });
+    </script>
+</body>
+</html>
